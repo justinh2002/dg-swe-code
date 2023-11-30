@@ -43,9 +43,6 @@ class DGCubedSphereSWE:
         if sol is None:
             sol = {n: (self.faces[n].u, self.faces[n].v, self.faces[n].w, self.faces[n].h) for n in self.face_names}
 
-        if self.H1:
-            self.set_vort(sol)
-
         for name in self.face_names:
 
             face = self.faces[name]
@@ -55,60 +52,51 @@ class DGCubedSphereSWE:
 
                 neighbour = self.faces[n]
                 u, v, w, h = sol[n]
-                vort = neighbour.vort
                 if i2 == 0:
-                    u = u[:, -1, :, -1]
-                    v = v[:, -1, :, -1]
-                    w = w[:, -1, :, -1]
-                    h = h[:, -1, :, -1]
-                    vort = vort[:, -1, :, -1]
+                    u = u[:, -1]
+                    v = v[:, -1]
+                    w = w[:, -1]
+                    h = h[:, -1]
                 elif i2 == 1:
-                    u = u[-1, :, -1]
-                    v = v[-1, :, -1]
-                    w = w[-1, :, -1]
-                    h = h[-1, :, -1]
-                    vort = vort[-1, :, -1]
+                    u = u[-1]
+                    v = v[-1]
+                    w = w[-1]
+                    h = h[-1]
                 elif i2 == 2:
-                    u = u[:, 0, :, 0]
-                    v = v[:, 0, :, 0]
-                    w = w[:, 0, :, 0]
-                    h = h[:, 0, :, 0]
-                    vort = vort[:, 0, :, 0]
+                    u = u[:, 0]
+                    v = v[:, 0]
+                    w = w[:, 0]
+                    h = h[:, 0]
                 elif i2 == 3:
-                    u = u[0, :, 0]
-                    v = v[0, :, 0]
-                    w = w[0, :, 0]
-                    h = h[0, :, 0]
-                    vort = vort[0, :, 0]
+                    u = u[0]
+                    v = v[0]
+                    w = w[0]
+                    h = h[0]
                 else:
                     raise RuntimeError
 
                 if i1 == 0:
                     # 0 - case of right element boundary. therefore fill array for right of element
-                    face.u_right[:, -1] = u
-                    face.v_right[:, -1] = v
-                    face.w_right[:, -1] = w
-                    face.h_right[:, -1] = h
-                    face.vort_right[:, -1] = vort
+                    face.u_right[-1] = u
+                    face.v_right[-1] = v
+                    face.w_right[-1] = w
+                    face.h_right[-1] = h
                 elif i1 == 1:
                     face.u_up[-1] = u
                     face.v_up[-1] = v
                     face.w_up[-1] = w
                     face.h_up[-1] = h
-                    face.vort_up[-1] = vort
                 elif i1 == 2:
                     # 2 - case of left element boundary. therefore fill array for right of element
-                    face.u_left[:, 0] = u
-                    face.v_left[:, 0] = v
-                    face.w_left[:, 0] = w
-                    face.h_left[:, 0] = h
-                    face.vort_left[:, 0] = vort
+                    face.u_left[0] = u
+                    face.v_left[0] = v
+                    face.w_left[0] = w
+                    face.h_left[0] = h
                 elif i1 == 3:
                     face.u_down[0] = u
                     face.v_down[0] = v
                     face.w_down[0] = w
                     face.h_down[0] = h
-                    face.vort_down[0] = vort
                 else:
                     raise RuntimeError
 
@@ -512,10 +500,10 @@ class DGCubedSphereFace:
         right_arr = torch.zeros((2, self.n), dtype=self.dxdxi.dtype)
         left_arr = torch.zeros((2, self.n), dtype=self.dxdxi.dtype)
 
-        right_arr[:, :-1] = arr[:, :, :, 0]
+        right_arr[:, :-1] = arr[:, 0]
         right_arr[:, -1] = arr[:, -1, :, -1]
 
-        left_arr[:, 1:] = arr[:, :, :, -1]
+        left_arr[:, 1:] = arr[:, -1]
         left_arr[:, 0] = arr[:, 0, :, 0]
 
         return right_arr, left_arr
@@ -524,35 +512,35 @@ class DGCubedSphereFace:
         up_arr = torch.zeros((2,self.n), dtype=self.dxdxi.dtype)
         down_arr = torch.zeros((2,self.n), dtype=self.dxdxi.dtype)
 
-        up_arr[:-1] = arr[:, :, 0, :]
+        up_arr[:-1] = arr[0, :]
         up_arr[-1] = arr[-1, :, -1]
 
-        down_arr[1:] = arr[:, :, -1, :]
+        down_arr[1:] = arr[-1, :]
         down_arr[0] = arr[0, :, 0]
 
         return up_arr, down_arr
 
     def boundaries(self, u, v, w, h, t):
 
-        self.u_up[:-1] = u[:, :, 0, :]
-        self.u_down[1:] = u[:, :, -1, :]
-        self.u_right[:, :-1] = u[:, :, :, 0]
-        self.u_left[:, 1:] = u[:, :, :, -1]
+        self.u_up[:-1] = u[0, :]
+        self.u_down[1:] = u[-1, :]
+        self.u_right[:, :-1] = u[:, 0]
+        self.u_left[:, 1:] = u[:, -1]
 
-        self.v_up[:-1] = v[:, :, 0, :]
-        self.v_down[1:] = v[:, :, -1, :]
-        self.v_right[:, :-1] = v[:, :, :, 0]
-        self.v_left[:, 1:] = v[:, :, :, -1]
+        self.v_up[:-1] = v[0, :]
+        self.v_down[1:] = v[-1, :]
+        self.v_right[:, :-1] = v[:, 0]
+        self.v_left[:, 1:] = v[:, -1]
 
-        self.w_up[:-1] = w[:, :, 0, :]
-        self.w_down[1:] = w[:, :, -1, :]
-        self.w_right[:, :-1] = w[:, :, :, 0]
-        self.w_left[:, 1:] = w[:, :, :, -1]
+        self.w_up[:-1] = w[0, :]
+        self.w_down[1:] = w[-1, :]
+        self.w_right[:, :-1] = w[:, 0]
+        self.w_left[:, 1:] = w[:, -1]
 
-        self.h_up[:-1] = h[:, :, 0, :]
-        self.h_down[1:] = h[:, :, -1, :]
-        self.h_right[:, :-1] = h[:, :, :, 0]
-        self.h_left[:, 1:] = h[:, :, :, -1]
+        self.h_up[:-1] = h[0, :]
+        self.h_down[1:] = h[-1, :]
+        self.h_right[:, :-1] = h[:, 0]
+        self.h_left[:, 1:] = h[:, -1]
 
         # wall boundary condition
         if self.bc.lower() == 'wall':
@@ -787,10 +775,10 @@ class DGCubedSphereFace:
         h_flux_vert = 0.5 * (h_up_flux + h_down_flux)
         h_flux_horz = 0.5 * (h_right_flux + h_left_flux)
 
-        self.tmp1[:, :, -1] = (h_flux_vert[1:] - h_down_flux[1:]) * (self.weights_x * self.J_vertface[:, :, -1])
-        self.tmp1[:, :, 0] = -(h_flux_vert[:-1] - h_up_flux[:-1]) * (self.weights_x * self.J_vertface[:, :, 0])
-        self.tmp2[:, :, :, -1] = (h_flux_horz[:, 1:] - h_left_flux[:, 1:]) * (self.weights_x * self.J_horzface[..., -1])
-        self.tmp2[:, :, :, 0] = -(h_flux_horz[:, :-1] - h_right_flux[:, :-1]) * (
+        self.tmp1[-1] = (h_flux_vert[1:] - h_down_flux[1:]) * (self.weights_x * self.J_vertface[-1])
+        self.tmp1[0] = -(h_flux_vert[:-1] - h_up_flux[:-1]) * (self.weights_x * self.J_vertface[0])
+        self.tmp2[:, -1] = (h_flux_horz[:, 1:] - h_left_flux[:, 1:]) * (self.weights_x * self.J_horzface[..., -1])
+        self.tmp2[:, 0] = -(h_flux_horz[:, :-1] - h_right_flux[:, :-1]) * (
                 self.weights_x * self.J_horzface[..., 0])
         out -= (self.tmp1 + self.tmp2)
 
@@ -850,15 +838,15 @@ class DGCubedSphereFace:
         out = -dxd_m_SBP(uv_flux, nx , dx, order) * self.J * self.weights
         out -= vort * u_perp * self.J * self.weights
 
-        self.tmp1[:, :, -1] = 0
-        self.tmp1[:, :, 0] = 0
-        self.tmp2[:, :, :, -1] = (uv_flux_horz - uv_left_flux)[:, 1:] * self.weights_x * (self.J_horzface / self.J_xi)[..., -1]
-        self.tmp2[:, :, :, 0] = -(uv_flux_horz - uv_right_flux)[:, :-1] * self.weights_x * (self.J_horzface / self.J_xi)[..., 0]
+        self.tmp1[-1] = 0
+        self.tmp1[0] = 0
+        self.tmp2[:, -1] = (uv_flux_horz - uv_left_flux)[:, 1:] * self.weights_x * (self.J_horzface / self.J_xi)[..., -1]
+        self.tmp2[:, 0] = -(uv_flux_horz - uv_right_flux)[:, :-1] * self.weights_x * (self.J_horzface / self.J_xi)[..., 0]
 
-        self.tmp1[:, :, -1] += -0.5 * (u_perp_down * (u_cov_up - u_cov_down))[1:] * self.weights_x * (self.J_vertface / (self.J_eta * self.J))[:, :, -1]
-        self.tmp1[:, :, 0] += -0.5 * (u_perp_up * (u_cov_up - u_cov_down))[:-1] * self.weights_x * (self.J_vertface / (self.J_eta * self.J))[:, :, 0]
-        self.tmp2[:, :, :, -1] += 0.5 * (u_perp_left * (v_cov_right - v_cov_left))[:, 1:] * self.weights_x * (self.J_horzface / (self.J_xi * self.J))[..., -1]
-        self.tmp2[:, :, :, 0] += 0.5 * (u_perp_right * (v_cov_right - v_cov_left))[:, :-1] * self.weights_x * (self.J_horzface / (self.J_xi * self.J))[..., 0]
+        self.tmp1[-1] += -0.5 * (u_perp_down * (u_cov_up - u_cov_down))[1:] * self.weights_x * (self.J_vertface / (self.J_eta * self.J))[-1]
+        self.tmp1[0] += -0.5 * (u_perp_up * (u_cov_up - u_cov_down))[:-1] * self.weights_x * (self.J_vertface / (self.J_eta * self.J))[0]
+        self.tmp2[:, -1] += 0.5 * (u_perp_left * (v_cov_right - v_cov_left))[:, 1:] * self.weights_x * (self.J_horzface / (self.J_xi * self.J))[..., -1]
+        self.tmp2[:, 0] += 0.5 * (u_perp_right * (v_cov_right - v_cov_left))[:, :-1] * self.weights_x * (self.J_horzface / (self.J_xi * self.J))[..., 0]
 
         out -= (self.tmp1 + self.tmp2)
         u_k = out / (self.J * self.weights)
@@ -870,15 +858,15 @@ class DGCubedSphereFace:
         out = -dyd_m_SBP(uv_flux, ny, dy, order) * self.J * self.weights
         out -= vort * v_perp * self.J * self.weights
 
-        self.tmp1[:, :, -1] = (uv_flux_vert - uv_down_flux)[1:] * self.weights_x * (self.J_vertface / self.J_eta)[:, :, -1]
-        self.tmp1[:, :, 0] = -(uv_flux_vert - uv_up_flux)[:-1] * self.weights_x * (self.J_vertface / self.J_eta)[:, :, 0]
-        self.tmp2[:, :, :, -1] = 0
-        self.tmp2[:, :, :, 0] = 0
+        self.tmp1[-1] = (uv_flux_vert - uv_down_flux)[1:] * self.weights_x * (self.J_vertface / self.J_eta)[-1]
+        self.tmp1[0] = -(uv_flux_vert - uv_up_flux)[:-1] * self.weights_x * (self.J_vertface / self.J_eta)[0]
+        self.tmp2[:, -1] = 0
+        self.tmp2[:, 0] = 0
 
-        self.tmp1[:, :, -1] += -0.5 * (v_perp_down * (u_cov_up - u_cov_down))[1:] * self.weights_x * (self.J_vertface / (self.J_eta * self.J))[:, :, -1]
-        self.tmp1[:, :, 0] += -0.5 * (v_perp_up * (u_cov_up - u_cov_down))[:-1] * self.weights_x * (self.J_vertface / (self.J_eta * self.J))[:, :, 0]
-        self.tmp2[:, :, :, -1] += 0.5 * (v_perp_left * (v_cov_right - v_cov_left))[:, 1:] * self.weights_x * (self.J_horzface / (self.J_xi * self.J))[..., -1]
-        self.tmp2[:, :, :, 0] += 0.5 * (v_perp_right * (v_cov_right - v_cov_left))[:, :-1] * self.weights_x * (self.J_horzface / (self.J_xi * self.J))[..., 0]
+        self.tmp1[-1] += -0.5 * (v_perp_down * (u_cov_up - u_cov_down))[1:] * self.weights_x * (self.J_vertface / (self.J_eta * self.J))[-1]
+        self.tmp1[0] += -0.5 * (v_perp_up * (u_cov_up - u_cov_down))[:-1] * self.weights_x * (self.J_vertface / (self.J_eta * self.J))[0]
+        self.tmp2[:, -1] += 0.5 * (v_perp_left * (v_cov_right - v_cov_left))[:, 1:] * self.weights_x * (self.J_horzface / (self.J_xi * self.J))[..., -1]
+        self.tmp2[:, 0] += 0.5 * (v_perp_right * (v_cov_right - v_cov_left))[:, :-1] * self.weights_x * (self.J_horzface / (self.J_xi * self.J))[..., 0]
 
         out -= (self.tmp1 + self.tmp2)
         v_k = out / (self.J * self.weights)
