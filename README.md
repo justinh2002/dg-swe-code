@@ -17,3 +17,4 @@ For efficiency reason the Galewsky test case is configured at a lower resolution
 `6x15x15` elements. To change this simply set `nx=ny=...` at the top of the file 
 to your desired resolution. To run the test case set the `mode=run`, then to plot the results set `mode=plot`.
 
+# sbp_swe_cubed
