@@ -1,10 +1,9 @@
 import numpy as np
 from dg_swe.utils import gll, lagrange1st, cross_product, norm_L2
-import meshzoo
 import torch
 from matplotlib import pyplot as plt
 from dg_swe.geometry import EquiangularFace, SadournyFace
-from sbp_operators import dxd_m_SBP, dyd_m_SBP
+from dg_swe.sbp_operators import dxd_m_SBP, dyd_m_SBP
 import os
 
 
@@ -106,8 +105,6 @@ class DGCubedSphereSWE:
     def time_step(self, dt=None, order=3, forcing=None):
         self.time_list.append(self.time)
         self.energy_list.append(self.integrate(self.entropy()))
-        self.enstrophy_list.append(self.integrate(self.enstrophy()))
-        self.vorticity_list.append(self.integrate(self.vorticity()))
         self.mass_list.append(self.integrate(self.mass()))
 
         self.h = {n: f.h for n, f in self.faces.items()}  # only needs to be done once
@@ -302,7 +299,7 @@ class DGCubedSphereSWE:
         self.boundaries()
 
     def save_diagnostics(self, fn_template, directory):
-        diagnostics = np.stack([self.time_list, self.energy_list, self.enstrophy_list, self.vorticity_list, self.mass_list])
+        diagnostics = np.stack([self.time_list, self.energy_list, self.mass_list])
         fp = os.path.join(directory, f"diagnostics_{fn_template}")
         np.save(fp, diagnostics)
 
@@ -311,11 +308,7 @@ class DGCubedSphereSWE:
         diagnostics = np.load(os.path.join(directory, f"diagnostics_{fn_template}"))
         times = diagnostics[0] / (24 * 3600)
         entropy = diagnostics[1]
-        enstrophy = diagnostics[2]
-        vorticity = diagnostics[3]
-        mass = diagnostics[4]
-
-        print('vorticity:', vorticity[0])
+        mass = diagnostics[2]
 
         plt.figure(fig_int, figsize=(7, 7))
 
@@ -333,20 +326,6 @@ class DGCubedSphereSWE:
         ax.set_ylabel("Mass error (normalized)")
         ax.set_xticks([], [])
         ax.plot(times, (mass - mass[0]) / mass[0], label=label)
-        ax.set_yscale('symlog', linthresh=1e-16)
-        ax.grid(True, which='both')
-
-        ax = plt.subplot(2, 2, 3)
-        ax.set_ylabel("Enstrophy error (normalized)")
-        ax.set_xlabel("Time" + tunit)
-        ax.plot(times, (enstrophy - enstrophy[0]) / enstrophy[0], label=label)
-        ax.set_yscale('symlog', linthresh=1e-15)
-        ax.grid(True, which='both')
-
-        ax = plt.subplot(2, 2, 4)
-        plt.ylabel("Vorticity error")
-        plt.xlabel("Time" + tunit)
-        plt.plot(times, (vorticity - vorticity[0]), label=label)
         ax.set_yscale('symlog', linthresh=1e-16)
         ax.grid(True, which='both')
 
@@ -386,15 +365,19 @@ class DGCubedSphereFace:
         self.connections = self.geometry.connections
         self.tau = tau
         
+        self_weights_x = np.zeros((nx, ny))
+
         
         x1 = np.linspace(-0.5, 0.5, nx)
         y1 = np.linspace(-0.5, 0.5, ny)
         
-
         lx = x1[1] - x1[0]
         ly = y1[1] - y1[0]
+        self.dx = lx
+        self.dy = ly
 
-        self.x1, self.y1 = np.meshgrid(self.x1,self.y1,indexing = 'xy')
+
+        self.x1, self.y1 = np.meshgrid(x1, y1,indexing = 'xy')
         # 3D cartesian coordinates on surface of sphere
         self.xs, self.ys, self.zs = self.geometry.to_cartesian(self.x1, self.y1)
         lat, long = self.geometry.lat_long(self.xs, self.ys, self.zs)
@@ -404,22 +387,25 @@ class DGCubedSphereFace:
 
         self.device = torch.device(device)
         self.n = n
-        self.weights = torch.from_numpy(self.weights.astype(self.dtype)).to(self.device)
-        self.weights_x = torch.from_numpy(self.weights_x.astype(self.dtype)).to(self.device)
-        self.nx = nx - 1
-        self.ny = ny - 1
+        self.sbp_boundary_weights = 17.0/48.0
+        # self.weights = torch.from_numpy(self.weights.astype(self.dtype)).to(self.device)
+        # self.weights_x = torch.from_numpy(self.weights_x.astype(self.dtype)).to(self.device)
+        self.nx = nx 
+        self.ny = ny 
+        
+        self.cdt = eps * radius * min(lx, ly) / (2 * poly_order + 1)  # this should be multiplied by pi / (2 * sqrt(2)) = 1.11... but eh a slightly smaller time step can't hurt
 
         dxdx1, dxdy1, dxdz1, dydx1, dydy1, dydz1, dzdx1, dzdy1, dzdz1 = self.geometry.covariant_basis(self.x1, self.y1)
-        self.dxdxi = torch.from_numpy(dxdx1.astype(self.dtype)).to(self.device) * lx / 2
-        self.dxdeta = torch.from_numpy(dxdy1.astype(self.dtype)).to(self.device) * ly / 2
+        self.dxdxi = torch.from_numpy(dxdx1.astype(self.dtype)).to(self.device) 
+        self.dxdeta = torch.from_numpy(dxdy1.astype(self.dtype)).to(self.device) 
         self.dxdzeta = torch.from_numpy(self.xs.astype(self.dtype)).to(self.device) / radius
         #
-        self.dydxi = torch.from_numpy(dydx1.astype(self.dtype)).to(self.device) * lx / 2
-        self.dydeta = torch.from_numpy(dydy1.astype(self.dtype)).to(self.device) * ly / 2
+        self.dydxi = torch.from_numpy(dydx1.astype(self.dtype)).to(self.device) 
+        self.dydeta = torch.from_numpy(dydy1.astype(self.dtype)).to(self.device) 
         self.dydzeta = torch.from_numpy(self.ys.astype(self.dtype)).to(self.device) / radius
         #
-        self.dzdxi = torch.from_numpy(dzdx1.astype(self.dtype)).to(self.device) * lx / 2
-        self.dzdeta = torch.from_numpy(dzdy1.astype(self.dtype)).to(self.device) * ly / 2
+        self.dzdxi = torch.from_numpy(dzdx1.astype(self.dtype)).to(self.device) 
+        self.dzdeta = torch.from_numpy(dzdy1.astype(self.dtype)).to(self.device) 
         self.dzdzeta = torch.from_numpy(self.zs.astype(self.dtype)).to(self.device) / radius        
 
 
@@ -497,26 +483,26 @@ class DGCubedSphereFace:
         self.kz_right, self.kz_left = self.make_left_right_arrays(self.kz)
 
     def make_left_right_arrays(self, arr):
-        right_arr = torch.zeros((2, self.n), dtype=self.dxdxi.dtype)
-        left_arr = torch.zeros((2, self.n), dtype=self.dxdxi.dtype)
+        right_arr = torch.zeros((2, self.ny), dtype=self.dxdxi.dtype)
+        left_arr = torch.zeros((2, self.ny), dtype=self.dxdxi.dtype)
 
-        right_arr[:, :-1] = arr[:, 0]
-        right_arr[:, -1] = arr[:, -1, :, -1]
+        right_arr[:-1] = arr[:, 0]
+        right_arr[-1] = arr[:, -1]
 
-        left_arr[:, 1:] = arr[:, -1]
-        left_arr[:, 0] = arr[:, 0, :, 0]
+        left_arr[1:] = arr[:, -1]
+        left_arr[0] = arr[:, 0]
 
         return right_arr, left_arr
 
     def make_up_down_arrays(self, arr):
-        up_arr = torch.zeros((2,self.n), dtype=self.dxdxi.dtype)
-        down_arr = torch.zeros((2,self.n), dtype=self.dxdxi.dtype)
+        up_arr = torch.zeros((2, self.nx), dtype=self.dxdxi.dtype)
+        down_arr = torch.zeros((2, self.nx), dtype=self.dxdxi.dtype)
 
         up_arr[:-1] = arr[0, :]
-        up_arr[-1] = arr[-1, :, -1]
+        up_arr[-1] = arr[-1, :]
 
         down_arr[1:] = arr[-1, :]
-        down_arr[0] = arr[0, :, 0]
+        down_arr[0] = arr[0, :]
 
         return up_arr, down_arr
 
@@ -524,23 +510,23 @@ class DGCubedSphereFace:
 
         self.u_up[:-1] = u[0, :]
         self.u_down[1:] = u[-1, :]
-        self.u_right[:, :-1] = u[:, 0]
-        self.u_left[:, 1:] = u[:, -1]
+        self.u_right[:-1] = u[:, 0]
+        self.u_left[1:] = u[:, -1]
 
         self.v_up[:-1] = v[0, :]
         self.v_down[1:] = v[-1, :]
-        self.v_right[:, :-1] = v[:, 0]
-        self.v_left[:, 1:] = v[:, -1]
+        self.v_right[:-1] = v[:, 0]
+        self.v_left[1:] = v[:, -1]
 
         self.w_up[:-1] = w[0, :]
         self.w_down[1:] = w[-1, :]
-        self.w_right[:, :-1] = w[:, 0]
-        self.w_left[:, 1:] = w[:, -1]
+        self.w_right[:-1] = w[:, 0]
+        self.w_left[1:] = w[:, -1]
 
         self.h_up[:-1] = h[0, :]
         self.h_down[1:] = h[-1, :]
-        self.h_right[:, :-1] = h[:, 0]
-        self.h_left[:, 1:] = h[:, -1]
+        self.h_right[:-1] = h[:, 0]
+        self.h_left[1:] = h[:, -1]
 
         # wall boundary condition
         if self.bc.lower() == 'wall':
@@ -576,7 +562,6 @@ class DGCubedSphereFace:
 
         if order == 3:
             uk_1, vk_1, wk_1, hk_1 = self.solve(self.u, self.v, self.w, self.h, self.time, dt)
-            if forcing is not None: self.apply_forcing(uk_1, vk_1, hk_1, self.time, forcing)
 
             # SSPRK3
             u_1 = self.u + dt * uk_1
@@ -614,35 +599,34 @@ class DGCubedSphereFace:
         else:
             self.b = torch.from_numpy(b.astype(self.dtype)).to(self.device)
 
-        self.vort = self.dg_vort(self.u, self.v, self.w, self.h)
 
         self.tmp1 = torch.zeros_like(self.u).to(self.device)
         self.tmp2 = torch.zeros_like(self.u).to(self.device)
 
-        self.u_left = torch.zeros((2, self.n), dtype=self.tmp1.dtype).to(self.device)
-        self.u_right = torch.zeros((2, self.n), dtype=self.tmp1.dtype).to(self.device)
-        self.u_up = torch.zeros((2,self.n), dtype=self.tmp1.dtype).to(self.device)
-        self.u_down = torch.zeros((2,self.n), dtype=self.tmp1.dtype).to(self.device)
+        self.u_left = torch.zeros((2, self.ny), dtype=self.tmp1.dtype).to(self.device)
+        self.u_right = torch.zeros((2, self.ny), dtype=self.tmp1.dtype).to(self.device)
+        self.u_up = torch.zeros((2,self.nx), dtype=self.tmp1.dtype).to(self.device)
+        self.u_down = torch.zeros((2,self.nx), dtype=self.tmp1.dtype).to(self.device)
 
-        self.v_left = torch.zeros((2, self.n), dtype=self.tmp1.dtype).to(self.device)
-        self.v_right = torch.zeros((2, self.n), dtype=self.tmp1.dtype).to(self.device)
-        self.v_up = torch.zeros((2,self.n), dtype=self.tmp1.dtype).to(self.device)
-        self.v_down = torch.zeros((2,self.n), dtype=self.tmp1.dtype).to(self.device)
+        self.v_left = torch.zeros((2, self.ny), dtype=self.tmp1.dtype).to(self.device)
+        self.v_right = torch.zeros((2, self.ny), dtype=self.tmp1.dtype).to(self.device)
+        self.v_up = torch.zeros((2,self.nx), dtype=self.tmp1.dtype).to(self.device)
+        self.v_down = torch.zeros((2,self.nx), dtype=self.tmp1.dtype).to(self.device)
 
-        self.w_left = torch.zeros((2, self.n), dtype=self.tmp1.dtype).to(self.device)
-        self.w_right = torch.zeros((2, self.n), dtype=self.tmp1.dtype).to(self.device)
-        self.w_up = torch.zeros((2,self.n), dtype=self.tmp1.dtype).to(self.device)
-        self.w_down = torch.zeros((2,self.n), dtype=self.tmp1.dtype).to(self.device)
+        self.w_left = torch.zeros((2, self.ny), dtype=self.tmp1.dtype).to(self.device)
+        self.w_right = torch.zeros((2, self.ny), dtype=self.tmp1.dtype).to(self.device)
+        self.w_up = torch.zeros((2,self.nx), dtype=self.tmp1.dtype).to(self.device)
+        self.w_down = torch.zeros((2,self.nx), dtype=self.tmp1.dtype).to(self.device)
 
-        self.h_left = torch.zeros((2, self.n), dtype=self.tmp1.dtype).to(self.device)
-        self.h_right = torch.zeros((2, self.n), dtype=self.tmp1.dtype).to(self.device)
-        self.h_up = torch.zeros((2,self.n), dtype=self.tmp1.dtype).to(self.device)
-        self.h_down = torch.zeros((2,self.n), dtype=self.tmp1.dtype).to(self.device)
+        self.h_left = torch.zeros((2, self.ny), dtype=self.tmp1.dtype).to(self.device)
+        self.h_right = torch.zeros((2, self.ny), dtype=self.tmp1.dtype).to(self.device)
+        self.h_up = torch.zeros((2,self.nx), dtype=self.tmp1.dtype).to(self.device)
+        self.h_down = torch.zeros((2,self.nx), dtype=self.tmp1.dtype).to(self.device)
 
         self.boundaries(self.u, self.v, self.h, self.w, 0)
 
     def integrate(self, q):
-        return (q * self.weights * abs(self.J)).sum()
+        return (q * abs(self.J)).sum()
 
     def entropy(self, u=None, v=None, w=None, h=None):
         if u is None:
@@ -737,16 +721,14 @@ class DGCubedSphereFace:
 
         # handle h
         h_xflux, h_yflux, h_zflux = self.hflux(u, v, w, h)
-        h_xflux, h_yflux = self.phys_to_contra(h_xflux, h_yflux,
-                                               h_zflux)  # flux is in contravariant form
+        h_xflux, h_yflux = self.phys_to_contra(h_xflux, h_yflux, h_zflux)  # flux is in contravariant form
         
-        div = dxd_m_SBP(h_xflux * self.J,nx,dx,order)
-        div += dyd_m_SBP(h_yflux * self.J,ny,dy,order)
+        div = dxd_m_SBP(h_xflux * self.J,self.nx,self.dx)
+        div += dyd_m_SBP(h_yflux * self.J,self.ny,self.dy)
 
         div /= self.J
-        verbose = False
 
-        out = -self.weights * self.J * div
+        out = - self.sbp_boundary_weights* self.J * div
 
         h_up_flux_x, h_up_flux_y, h_up_flux_z = self.hflux(self.u_up, self.v_up, self.w_up, self.h_up)
         h_down_flux_x, h_down_flux_y, h_down_flux_z = self.hflux(self.u_down, self.v_down, self.w_down, self.h_down)
@@ -774,15 +756,18 @@ class DGCubedSphereFace:
 
         h_flux_vert = 0.5 * (h_up_flux + h_down_flux)
         h_flux_horz = 0.5 * (h_right_flux + h_left_flux)
+        
 
-        self.tmp1[-1] = (h_flux_vert[1:] - h_down_flux[1:]) * (self.weights_x * self.J_vertface[-1])
-        self.tmp1[0] = -(h_flux_vert[:-1] - h_up_flux[:-1]) * (self.weights_x * self.J_vertface[0])
-        self.tmp2[:, -1] = (h_flux_horz[:, 1:] - h_left_flux[:, 1:]) * (self.weights_x * self.J_horzface[..., -1])
-        self.tmp2[:, 0] = -(h_flux_horz[:, :-1] - h_right_flux[:, :-1]) * (
-                self.weights_x * self.J_horzface[..., 0])
-        out -= (self.tmp1 + self.tmp2)
-
-        h_k = out / (self.J * self.weights)
+        self.tmp1[-1] = (h_flux_vert[1:] - h_down_flux[1:]) * (self.J_vertface[-1])
+        self.tmp1[0] = -(h_flux_vert[:-1] - h_up_flux[:-1]) * (self.J_vertface[0])
+        self.tmp2[:, -1] = (h_flux_horz[1:] - h_left_flux[1:]) * (self.J_horzface[..., -1])
+        self.tmp2[:, 0] = -(h_flux_horz[:-1] - h_right_flux[:-1]) * (
+                self.J_horzface[..., 0])
+        
+        boundary_sbp_integration_weight = 17.0 / 48.0
+        out -= (self.tmp1 + self.tmp2) / (self.J * self.sbp_boundary_weights)        
+        
+        h_k = out / (self.J )
 
         # u and v fluxes
         ########
@@ -802,8 +787,8 @@ class DGCubedSphereFace:
         u_perp, v_perp, _ = self.phys_to_cov(*velocity_perp)
         #
         u_cov, v_cov, _ = self.phys_to_cov(u, v, w)
-        vort = dxd_m_SBP(v_cov,nx,dx,order)
-        vort -= dyd_m_SBP(u_cov,ny,dy,order)
+        vort = dxd_m_SBP(v_cov,self.nx,self.dx)
+        vort -= dyd_m_SBP(u_cov,self.ny,self.dy)
         vort /= self.J
         vort += self.f
 
@@ -835,44 +820,54 @@ class DGCubedSphereFace:
         #######
         ###
 
-        out = -dxd_m_SBP(uv_flux, nx , dx, order) * self.J * self.weights
-        out -= vort * u_perp * self.J * self.weights
+        out = -dxd_m_SBP(uv_flux, self.nx , self.dx) * self.J
+        out -= vort * u_perp * self.J * self.sbp_boundary_weights
 
         self.tmp1[-1] = 0
         self.tmp1[0] = 0
-        self.tmp2[:, -1] = (uv_flux_horz - uv_left_flux)[:, 1:] * self.weights_x * (self.J_horzface / self.J_xi)[..., -1]
-        self.tmp2[:, 0] = -(uv_flux_horz - uv_right_flux)[:, :-1] * self.weights_x * (self.J_horzface / self.J_xi)[..., 0]
+        self.tmp2[:, -1] = (uv_flux_horz - uv_left_flux)[1:] * (self.J_horzface / self.J_xi)[..., -1]
+        self.tmp2[:, 0] = -(uv_flux_horz - uv_right_flux)[:-1] * (self.J_horzface / self.J_xi)[..., 0]
+        
+        self.tmp1[-1] += -0.5 * (u_perp_down * (u_cov_up - u_cov_down))[1] * (self.J_vertface / (self.J_eta * self.J))[-1]
+        self.tmp1[0] += -0.5 * (u_perp_up * (u_cov_up - u_cov_down))[0] * (self.J_vertface / (self.J_eta * self.J))[0]
+        self.tmp2[:, -1] += 0.5 * (u_perp_left * (v_cov_right - v_cov_left))[1] * (self.J_horzface / (self.J_xi * self.J))[..., -1]
+        self.tmp2[:, 0] += 0.5 * (u_perp_right * (v_cov_right - v_cov_left))[0] * (self.J_horzface / (self.J_xi * self.J))[..., 0]
 
-        self.tmp1[-1] += -0.5 * (u_perp_down * (u_cov_up - u_cov_down))[1:] * self.weights_x * (self.J_vertface / (self.J_eta * self.J))[-1]
-        self.tmp1[0] += -0.5 * (u_perp_up * (u_cov_up - u_cov_down))[:-1] * self.weights_x * (self.J_vertface / (self.J_eta * self.J))[0]
-        self.tmp2[:, -1] += 0.5 * (u_perp_left * (v_cov_right - v_cov_left))[:, 1:] * self.weights_x * (self.J_horzface / (self.J_xi * self.J))[..., -1]
-        self.tmp2[:, 0] += 0.5 * (u_perp_right * (v_cov_right - v_cov_left))[:, :-1] * self.weights_x * (self.J_horzface / (self.J_xi * self.J))[..., 0]
-
-        out -= (self.tmp1 + self.tmp2)
-        u_k = out / (self.J * self.weights)
+        
+        out -= (self.tmp1 + self.tmp2) / (self.J * boundary_sbp_integration_weight)
+        u_k = out / (self.J)
 
         # handle v
         #######
         ###
 
-        out = -dyd_m_SBP(uv_flux, ny, dy, order) * self.J * self.weights
-        out -= vort * v_perp * self.J * self.weights
+        out = -dyd_m_SBP(uv_flux, self.ny, self.dy) * self.J
+        out -= vort * v_perp * self.J * self.sbp_boundary_weights
 
-        self.tmp1[-1] = (uv_flux_vert - uv_down_flux)[1:] * self.weights_x * (self.J_vertface / self.J_eta)[-1]
-        self.tmp1[0] = -(uv_flux_vert - uv_up_flux)[:-1] * self.weights_x * (self.J_vertface / self.J_eta)[0]
+        # self.tmp1[-1] = (uv_flux_vert - uv_down_flux)[1:] * self.weights_x * (self.J_vertface / (self.J_eta * self.weights))[-1]
+
+        self.tmp1[-1] = (uv_flux_vert - uv_down_flux)[1:] * (self.J_vertface / self.J_eta)[-1]
+        self.tmp1[0] = -(uv_flux_vert - uv_up_flux)[:-1] * (self.J_vertface / self.J_eta)[0]
         self.tmp2[:, -1] = 0
         self.tmp2[:, 0] = 0
 
-        self.tmp1[-1] += -0.5 * (v_perp_down * (u_cov_up - u_cov_down))[1:] * self.weights_x * (self.J_vertface / (self.J_eta * self.J))[-1]
-        self.tmp1[0] += -0.5 * (v_perp_up * (u_cov_up - u_cov_down))[:-1] * self.weights_x * (self.J_vertface / (self.J_eta * self.J))[0]
-        self.tmp2[:, -1] += 0.5 * (v_perp_left * (v_cov_right - v_cov_left))[:, 1:] * self.weights_x * (self.J_horzface / (self.J_xi * self.J))[..., -1]
-        self.tmp2[:, 0] += 0.5 * (v_perp_right * (v_cov_right - v_cov_left))[:, :-1] * self.weights_x * (self.J_horzface / (self.J_xi * self.J))[..., 0]
+        self.tmp1[-1] += -0.5 * (v_perp_down * (u_cov_up - u_cov_down))[1] * (self.J_vertface / (self.J_eta * self.J))[-1]
+        self.tmp1[0] += -0.5 * (v_perp_up * (u_cov_up - u_cov_down))[0] * (self.J_vertface / (self.J_eta * self.J))[0]
+        self.tmp2[:, -1] += 0.5 * (v_perp_left * (v_cov_right - v_cov_left))[1] * (self.J_horzface / (self.J_xi * self.J))[..., -1]
+        self.tmp2[:, 0] += 0.5 * (v_perp_right * (v_cov_right - v_cov_left))[0] * (self.J_horzface / (self.J_xi * self.J))[..., 0]
 
-        out -= (self.tmp1 + self.tmp2)
-        v_k = out / (self.J * self.weights)
+        
+        
+        out -= (self.tmp1 + self.tmp2) / (self.J * self.sbp_boundary_weights)
+        v_k = out / (self.J)
 
         u_k, v_k, w_k = self.cov_to_phys(u_k, v_k, 0)
 
+        if verbose:
+            print('dudt max:', abs(u_k).max())
+            print('dvdt max:', abs(v_k).max())
+            print('dwdt max:', abs(w_k).max())
+            print('dhdt max:', abs(h_k).max())               
         return u_k, v_k, w_k, h_k
 
     def phys_to_contra(self, u, v, w):
