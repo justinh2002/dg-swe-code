@@ -728,7 +728,7 @@ class DGCubedSphereFace:
 
         div /= self.J
 
-        out = - self.sbp_boundary_weights* self.J * div
+        out = -div
 
         h_up_flux_x, h_up_flux_y, h_up_flux_z = self.hflux(self.u_up, self.v_up, self.w_up, self.h_up)
         h_down_flux_x, h_down_flux_y, h_down_flux_z = self.hflux(self.u_down, self.v_down, self.w_down, self.h_down)
@@ -767,7 +767,7 @@ class DGCubedSphereFace:
         boundary_sbp_integration_weight = 17.0 / 48.0
         out -= (self.tmp1 + self.tmp2) / (self.J * self.sbp_boundary_weights)        
         
-        h_k = out / (self.J )
+        h_k = out
 
         # u and v fluxes
         ########
@@ -820,8 +820,8 @@ class DGCubedSphereFace:
         #######
         ###
 
-        out = -dxd_m_SBP(uv_flux, self.nx , self.dx) * self.J
-        out -= vort * u_perp * self.J * self.sbp_boundary_weights
+        out = -dxd_m_SBP(uv_flux, self.nx , self.dx)
+        out -= vort * u_perp
 
         self.tmp1[-1] = 0
         self.tmp1[0] = 0
@@ -835,14 +835,14 @@ class DGCubedSphereFace:
 
         
         out -= (self.tmp1 + self.tmp2) / (self.J * boundary_sbp_integration_weight)
-        u_k = out / (self.J)
+        u_k = out
 
         # handle v
         #######
         ###
 
-        out = -dyd_m_SBP(uv_flux, self.ny, self.dy) * self.J
-        out -= vort * v_perp * self.J * self.sbp_boundary_weights
+        out = -dyd_m_SBP(uv_flux, self.ny, self.dy)
+        out -= vort * v_perp
 
         # self.tmp1[-1] = (uv_flux_vert - uv_down_flux)[1:] * self.weights_x * (self.J_vertface / (self.J_eta * self.weights))[-1]
 
@@ -856,10 +856,9 @@ class DGCubedSphereFace:
         self.tmp2[:, -1] += 0.5 * (v_perp_left * (v_cov_right - v_cov_left))[1] * (self.J_horzface / (self.J_xi * self.J))[..., -1]
         self.tmp2[:, 0] += 0.5 * (v_perp_right * (v_cov_right - v_cov_left))[0] * (self.J_horzface / (self.J_xi * self.J))[..., 0]
 
-        
-        
+
         out -= (self.tmp1 + self.tmp2) / (self.J * self.sbp_boundary_weights)
-        v_k = out / (self.J)
+        v_k = out
 
         u_k, v_k, w_k = self.cov_to_phys(u_k, v_k, 0)
 
