@@ -264,6 +264,9 @@ class DGCubedSphereSWE:
     def entropy(self):
         return {n: f.entropy() for n, f in self.faces.items()}
 
+    def dEdt(self):
+        return {n: f.dEdt() for n, f in self.faces.items()}
+
     def enstrophy(self):
         return {n: f.enstrophy() for n, f in self.faces.items()}
 
@@ -365,9 +368,8 @@ class DGCubedSphereFace:
         self.connections = self.geometry.connections
         self.tau = tau
         
-        self_weights_x = np.zeros((nx, ny))
 
-        
+
         x1 = np.linspace(-0.5, 0.5, nx)
         y1 = np.linspace(-0.5, 0.5, ny)
         
@@ -376,6 +378,18 @@ class DGCubedSphereFace:
         self.dx = lx
         self.dy = ly
 
+        weights_x = np.ones_like(x1)
+        weights_x[0] = 17 / 48
+        weights_x[1] = 59 / 48
+        weights_x[2] = 43 / 48
+        weights_x[3] = 49 / 48
+
+        weights_x[-1] = 17 / 48
+        weights_x[-2] = 59 / 48
+        weights_x[-3] = 43 / 48
+        weights_x[-4] = 49 / 48
+
+        self.weights = weights_x[:, None] * weights_x[None, :]
 
         self.x1, self.y1 = np.meshgrid(x1, y1,indexing = 'xy')
         # 3D cartesian coordinates on surface of sphere
@@ -387,7 +401,7 @@ class DGCubedSphereFace:
 
         self.device = torch.device(device)
         self.n = n
-        self.sbp_boundary_weights = 17.0/48.0
+        self.sbp_boundary_weights = self.dx * 17.0/48.0
         # self.weights = torch.from_numpy(self.weights.astype(self.dtype)).to(self.device)
         # self.weights_x = torch.from_numpy(self.weights_x.astype(self.dtype)).to(self.device)
         self.nx = nx 
@@ -626,7 +640,7 @@ class DGCubedSphereFace:
         self.boundaries(self.u, self.v, self.h, self.w, 0)
 
     def integrate(self, q):
-        return (q * abs(self.J)).sum()
+        return (q * abs(self.J) * self.weights).sum()
 
     def entropy(self, u=None, v=None, w=None, h=None):
         if u is None:
@@ -728,7 +742,7 @@ class DGCubedSphereFace:
 
         div /= self.J
 
-        out = - self.sbp_boundary_weights* self.J * div
+        out = -div
 
         h_up_flux_x, h_up_flux_y, h_up_flux_z = self.hflux(self.u_up, self.v_up, self.w_up, self.h_up)
         h_down_flux_x, h_down_flux_y, h_down_flux_z = self.hflux(self.u_down, self.v_down, self.w_down, self.h_down)
@@ -756,18 +770,16 @@ class DGCubedSphereFace:
 
         h_flux_vert = 0.5 * (h_up_flux + h_down_flux)
         h_flux_horz = 0.5 * (h_right_flux + h_left_flux)
-        
 
         self.tmp1[-1] = (h_flux_vert[1:] - h_down_flux[1:]) * (self.J_vertface[-1])
         self.tmp1[0] = -(h_flux_vert[:-1] - h_up_flux[:-1]) * (self.J_vertface[0])
         self.tmp2[:, -1] = (h_flux_horz[1:] - h_left_flux[1:]) * (self.J_horzface[..., -1])
-        self.tmp2[:, 0] = -(h_flux_horz[:-1] - h_right_flux[:-1]) * (
-                self.J_horzface[..., 0])
+        self.tmp2[:, 0] = -(h_flux_horz[:-1] - h_right_flux[:-1]) * (self.J_horzface[..., 0])
         
         boundary_sbp_integration_weight = 17.0 / 48.0
         out -= (self.tmp1 + self.tmp2) / (self.J * self.sbp_boundary_weights)        
         
-        h_k = out / (self.J )
+        h_k = out
 
         # u and v fluxes
         ########
@@ -820,8 +832,8 @@ class DGCubedSphereFace:
         #######
         ###
 
-        out = -dxd_m_SBP(uv_flux, self.nx , self.dx) * self.J
-        out -= vort * u_perp * self.J * self.sbp_boundary_weights
+        out = -dxd_m_SBP(uv_flux, self.nx , self.dx)
+        out -= vort * u_perp
 
         self.tmp1[-1] = 0
         self.tmp1[0] = 0
@@ -833,18 +845,15 @@ class DGCubedSphereFace:
         self.tmp2[:, -1] += 0.5 * (u_perp_left * (v_cov_right - v_cov_left))[1] * (self.J_horzface / (self.J_xi * self.J))[..., -1]
         self.tmp2[:, 0] += 0.5 * (u_perp_right * (v_cov_right - v_cov_left))[0] * (self.J_horzface / (self.J_xi * self.J))[..., 0]
 
-        
-        out -= (self.tmp1 + self.tmp2) / (self.J * boundary_sbp_integration_weight)
-        u_k = out / (self.J)
+        out -= (self.tmp1 + self.tmp2) / (self.J * self.sbp_boundary_weights)
+        u_k = out
 
         # handle v
         #######
         ###
 
-        out = -dyd_m_SBP(uv_flux, self.ny, self.dy) * self.J
-        out -= vort * v_perp * self.J * self.sbp_boundary_weights
-
-        # self.tmp1[-1] = (uv_flux_vert - uv_down_flux)[1:] * self.weights_x * (self.J_vertface / (self.J_eta * self.weights))[-1]
+        out = -dyd_m_SBP(uv_flux, self.ny, self.dy)
+        out -= vort * v_perp
 
         self.tmp1[-1] = (uv_flux_vert - uv_down_flux)[1:] * (self.J_vertface / self.J_eta)[-1]
         self.tmp1[0] = -(uv_flux_vert - uv_up_flux)[:-1] * (self.J_vertface / self.J_eta)[0]
@@ -856,10 +865,8 @@ class DGCubedSphereFace:
         self.tmp2[:, -1] += 0.5 * (v_perp_left * (v_cov_right - v_cov_left))[1] * (self.J_horzface / (self.J_xi * self.J))[..., -1]
         self.tmp2[:, 0] += 0.5 * (v_perp_right * (v_cov_right - v_cov_left))[0] * (self.J_horzface / (self.J_xi * self.J))[..., 0]
 
-        
-        
         out -= (self.tmp1 + self.tmp2) / (self.J * self.sbp_boundary_weights)
-        v_k = out / (self.J)
+        v_k = out
 
         u_k, v_k, w_k = self.cov_to_phys(u_k, v_k, 0)
 
