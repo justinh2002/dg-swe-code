@@ -1,7 +1,8 @@
 from matplotlib import pyplot as plt
 import numpy as np
 from scipy.stats import linregress
-from dg_swe.dg_cubed_sphere_swe import DGCubedSphereSWE
+# from dg_swe.dg_cubed_sphere_swe import DGCubedSphereSWE
+from dg_swe.sbp_cubed_sphere_swe import SBPCubedSphereSWE
 import os
 
 if not os.path.exists('./plots'): os.makedirs('./plots')
@@ -9,14 +10,14 @@ if not os.path.exists('./data'): os.makedirs('./data')
 
 plt.rcParams['font.size'] = '12'
 
-mode = 'plot'
+mode = 'run'
 dev = 'cpu'
 
 eps = 0.8
 g = 9.80616
 f = 7.292e-5
 radius = 6.37122e6
-poly_order = 3
+order = 4
 
 def initial_condition(face):
     lat, long = face.geometry.lat_long(face.xs, face.ys, face.zs)
@@ -84,8 +85,8 @@ def plot_orography(idx):
 
     plt.savefig(f'./plots/williamson_5_orography.png')
 
-solver = DGCubedSphereSWE(
-    poly_order, 32, 32, g, f,
+solver = SBPCubedSphereSWE(
+    order, 9, 9, g, f,
     eps, device=dev, solution=None, a=0.5, radius=radius,
     dtype=np.float64, damping=None
 )
@@ -94,8 +95,18 @@ for face in solver.faces.values():
     face.set_initial_condition(*initial_condition(face))
 
 # plot_orography(1)
-plot_height(2, 'ic')
-mode = 'plot'
+# plot_height(2, 'ic')
+tend = 2 * 60 * 60
+while solver.time < tend:
+    dt = solver.get_dt()
+    dt = min(dt, tend - solver.time)
+    solver.time_step(dt=dt)
+
+fc = solver.faces['zp']
+fc.solve(fc.u, fc.v, fc.w, fc.h, 0, 0, verbose=True)
+plt.plot(solver.time_list, solver.energy_list)
+plt.show()
+# exit(0)
 if mode == 'run':
     plot_orography(1)
     plot_height(2, 'ic')
@@ -109,12 +120,12 @@ if mode == 'run':
             solver.time_step(dt=dt)
 
         fn_template = f"williamson_5_day_{i + 1}.npy"
-        solver.save_restart(fn_template, 'data')
+        # solver.save_restart(fn_template, 'data')
 
 
 
 fn_template = "williamson_5_day_15.npy"
-solver.load_restart(fn_template, 'data')
+# solver.load_restart(fn_template, 'data')
 plot_height(3, 'final')
 
 plt.show()
