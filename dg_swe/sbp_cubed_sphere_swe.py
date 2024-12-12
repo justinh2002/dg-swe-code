@@ -397,7 +397,7 @@ class SBPCubedSphereFace:
         lat, long = self.geometry.lat_long(self.xs, self.ys, self.zs)
         self.f = 2 * f * np.sin(lat)
 
-        n = fd_order + 1
+
 
         self.device = torch.device(device)
         self.n = n
@@ -407,7 +407,7 @@ class SBPCubedSphereFace:
         self.nx = nx 
         self.ny = ny 
         
-        self.cdt = eps * radius * min(lx, ly) / (2 * fd_order + 1)  # this should be multiplied by pi / (2 * sqrt(2)) = 1.11... but eh a slightly smaller time step can't hurt
+        self.cdt = eps * radius * min(lx, ly) / (fd_order + 1)  # this should be multiplied by pi / (2 * sqrt(2)) = 1.11... but eh a slightly smaller time step can't hurt
 
         dxdx1, dxdy1, dxdz1, dydx1, dydy1, dydz1, dzdx1, dzdy1, dzdz1 = self.geometry.covariant_basis(self.x1, self.y1)
         self.dxdxi = torch.from_numpy(dxdx1.astype(self.dtype)).to(self.device) 
